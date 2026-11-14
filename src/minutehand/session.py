@@ -147,7 +147,7 @@ from minutehand.domain.checks import (
 )
 from minutehand.domain.common import GeneratedSecret, SecretFromEnvironment, SigningSecret
 from minutehand.domain.emulator import EmulatorChange
-from minutehand.domain.experiment import Fork, Override, TicketEdit
+from minutehand.domain.experiment import AddHappening, Fork, Override, TicketEdit
 from minutehand.domain.items import ItemKind, TypedItem
 from minutehand.domain.memory import DueRecords
 from minutehand.domain.outbound import Acknowledge, DeclaredStore, UnknownHosts
@@ -544,6 +544,20 @@ async def replay(
     return outcome
 
 
+def _forked_at(state: Path, parent_run: str, changes: Fork) -> datetime | None:
+    """The moment of the checkpoint a fork that adds a happening counts its `after` from; None when it adds none,
+    or names no checkpoint (`rewind.fork_run` refuses that, listing them)."""
+    if not any(isinstance(o, AddHappening) for o in changes.overrides):
+        return None
+    with reading(state, parent_run) as kept:
+        found = checkpoints(kept).get(changes.at_seq)
+    if found is None:
+        raise RunRefused(
+            f"run {parent_run} has no checkpoint at seq {changes.at_seq}; a fork is taken where a wake ended"
+        )
+    return found.now
+
+
 async def fork(
     parent_run: str,
     changes: Fork,
@@ -583,7 +597,9 @@ async def fork(
     agent = stored_agent(directory / AGENT)
     _as_run_was(state, parent_run)
     world = _root_dir(state, parent.record) / WORLD
-    changed = changed_scenario(scenario, changes)
+    if changes.live and frozen:
+        raise RunRefused("a fork is `live` (every model call made again) or `--frozen` (none made), not both")
+    changed = changed_scenario(scenario, changes, _forked_at(state, parent_run, changes))
     _refuse_unwritten(changed, agent, model)
     own_checks = _own_checks(agent)
     rules = rules_for(agent, changed, own_checks)
@@ -629,8 +645,11 @@ async def fork(
         # The agent's model calls after the checkpoint answered as the parent's model answered them, until the agent
         # asks something the parent did not: a fork differs from its parent by its changes, not by a model's mood.
         with reading(state, parent_run) as parent_kept:
+            # Ours: a `live` fork holds none of them, so every call the agent makes after the checkpoint is made again.
             model_replay = ModelReplay.of(
-                parent_run, parent_kept.spans(source=SpanSource.WIRE, after_wake=forked_after), frozen=frozen
+                parent_run,
+                [] if changes.live else parent_kept.spans(source=SpanSource.WIRE, after_wake=forked_after),
+                frozen=frozen,
             )
             # The model calls the agent made up to the checkpoint, answered as they were while it is played back to
             # it: a model asked again words its answer differently, and the agent's next call then differs from the

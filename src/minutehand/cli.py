@@ -412,6 +412,12 @@ def _parser() -> _Parser:
     fork.add_argument("--at", type=int, required=True, help="the checkpoint's seq (listed by `findings`)")
     fork.add_argument("--changes", type=Path, required=True)
     fork.add_argument(
+        "--live",
+        action="store_true",
+        help="from the checkpoint on make every model call again, the agent's and the people's: none is answered "
+        "from the parent's record (the changes file's `live: true`)",
+    )
+    fork.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -1253,6 +1259,8 @@ def _progress(command: str) -> Callable[[str], None]:
 
 def _fork(args: argparse.Namespace, state: Path, command: list[str] | None) -> int:
     changes = load_fork(args.changes, parent_run=args.run_id, at_seq=args.at)
+    if args.live:
+        changes = changes.model_copy(update={"live": True})
     if args.seed is not None:
         changes = changes.model_copy(update={"seed": args.seed})
     telemetry = _telemetry()

@@ -271,6 +271,8 @@ class SqliteStore:
         self._lock = threading.RLock()
         self._closed = False
         self._db = db
+        # Ours: a fork made `afresh` answers `written` None, so no model call of its is answered from the file.
+        self._afresh = False
         # zstd's (de)compressors are not safe across threads; each store's are used only under its lock.
         self._pack = zstandard.ZstdCompressor(level=3)
         self._unpack = zstandard.ZstdDecompressor()
@@ -718,6 +720,8 @@ class SqliteStore:
 
     @_locked
     def written(self, key: str) -> str | None:
+        if self._afresh:
+            return None
         row = self._db.execute(
             "SELECT call FROM person_call WHERE key=? AND answered=1 ORDER BY rowid LIMIT 1", (key,)
         ).fetchone()
@@ -955,7 +959,7 @@ class SqliteStore:
         return [ForwardFailure.model_validate_json(r[0]) for r in rows]
 
     @_locked
-    def fork(self, run_id: str, *, at_seq: int, clock: Clock) -> SqliteStore:
+    def fork(self, run_id: str, *, at_seq: int, clock: Clock, afresh: bool = False) -> SqliteStore:
         if not 0 <= at_seq <= self.head():
             raise ValueError(f"cannot fork at {at_seq}: this run's head is {self.head()}")
         where, args = self._visible()
@@ -971,7 +975,9 @@ class SqliteStore:
             (run_id, self.run_id, at_seq, recorded, at_wake[0] if at_wake is not None else 0),
         )
         self._db.commit()
-        return SqliteStore(self._path, run_id, clock)
+        child = SqliteStore(self._path, run_id, clock)
+        child._afresh = afresh
+        return child
 
     @_locked
     def sweep(self) -> Freed:

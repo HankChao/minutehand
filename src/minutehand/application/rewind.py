@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -40,6 +41,7 @@ from minutehand.application.checkpoint import (
     Checkpoint,
     NotRestorable,
     Pending,
+    PendingHappening,
     PendingTransition,
     checkpoints,
 )
@@ -65,7 +67,9 @@ from minutehand.application.sandbox import SandboxClock
 from minutehand.application.services import ServiceDesk
 from minutehand.application.traffic import Traffic
 from minutehand.domain.agent import AgentUnderTest
+from minutehand.domain.clock import Due, DueKind
 from minutehand.domain.experiment import (
+    AddHappening,
     DeadlineShift,
     DispatchChange,
     Fork,
@@ -117,12 +121,24 @@ class OnTheWire(Protocol):
     def apply(self, run_id: str, overrides: list[WireOverride]) -> None: ...
 
 
-def changed_scenario(scenario: Scenario, fork: Fork) -> Scenario:
-    """The scenario the child runs: people, deadline and dispatch rules as the fork's overrides say."""
+def changed_scenario(scenario: Scenario, fork: Fork, forked_at: datetime | None = None) -> Scenario:
+    """The scenario the child runs: people, deadline and dispatch rules as the fork's overrides say, and every
+    happening the fork adds (`AddHappening`) at the end of the list, due its `after` past `forked_at`, the
+    checkpoint's moment; a fork that adds one is refused without it."""
     people = {p.key: p for p in scenario.people}
     deadline_after = scenario.deadline_after
     dispatch = scenario.dispatch
+    happenings = list(scenario.happenings)
     for override in fork.overrides:
+        if isinstance(override, AddHappening):
+            if forked_at is None:
+                raise RunRefused("the fork adds a happening, and the checkpoint's moment it counts from was not given")
+            if override.happening.person not in people:
+                raise RunRefused(
+                    f"the fork adds something {override.happening.person} does, who is not in scenario {scenario.name}"
+                )
+            since_start = forked_at - scenario.starts_at + override.after
+            happenings.append(override.happening.model_copy(update={"after": since_start}))
         if isinstance(override, ReplyAt) and override.person not in people:
             raise RunRefused(f"the fork pins a reply of {override.person}, who is not in scenario {scenario.name}")
         if isinstance(override, PersonChange):
@@ -145,6 +161,7 @@ def changed_scenario(scenario: Scenario, fork: Fork) -> Scenario:
                 "people": [p.model_dump() for p in people.values()],
                 "deadline_after": deadline_after,
                 "dispatch": [r.model_dump() for r in dispatch],
+                "happenings": [h.model_dump() for h in happenings],
                 "seed": fork.seed if fork.seed is not None else scenario.seed,
             }
         )
@@ -210,7 +227,11 @@ async def fork_run(
             f"the fork patches the agent's model calls ({', '.join(o.kind for o in on_wire)}) "
             "and nothing is on the wire to apply them"
         )
-    changed = changed_scenario(scenario, fork)
+    added = [o for o in fork.overrides if isinstance(o, AddHappening)]
+    forked_at = (
+        _checkpoint_at(open_parent(RunClock(scenario.starts_at)), parent.run_id, fork.at_seq).now if added else None
+    )
+    changed = changed_scenario(scenario, fork, forked_at)
     _refuse_ticket_edits(fork, services, changed)
     records: list[RunRecord] = []
     for sample in range(fork.samples):
@@ -231,7 +252,7 @@ async def fork_run(
         )
         _refuse_emulated(parent_store, checkpoint, fork.at_seq)
         saved = saved_at(parent_store, fork.at_seq, checkpoint, state_dir)
-        child = parent_store.fork(child_id, at_seq=fork.at_seq, clock=clock)
+        child = parent_store.fork(child_id, at_seq=fork.at_seq, clock=clock, afresh=fork.live)
         try:
             clock.jump(checkpoint.now)
             while clock.wake() < checkpoint.wake:
@@ -291,6 +312,8 @@ async def fork_run(
             replanning = {o.person for o in fork.overrides if isinstance(o, PersonChange | ReplyAt)}
             if replanning:
                 checkpoint = await _replanned(orchestrator, child, replanning, checkpoint, clock)
+            if added:
+                checkpoint = _with_added(checkpoint, len(scenario.happenings), added)
             await _edit_tickets(fork, orchestrator.people, changed, child, clock)
         except RunRefused:
             child.discard()
@@ -300,6 +323,18 @@ async def fork_run(
             wire.apply(child_id, on_wire)
         records.append(await orchestrator.resume(checkpoint))
     return records
+
+
+def _with_added(checkpoint: Checkpoint, held: int, added: Sequence[AddHappening]) -> Checkpoint:
+    """The checkpoint with each happening the fork adds pending beside what it held: the nth added is the scenario's
+    happening `held + n` (`changed_scenario` put it there), due its `after` past the checkpoint's moment."""
+    pending: list[Pending] = list(checkpoint.pending)
+    for n, add in enumerate(added):
+        at = checkpoint.now + add.after
+        pending.append(
+            PendingHappening(due=Due(at=at, kind=DueKind.HAPPENING, ref=f"happening:{held + n}"), happening=held + n)
+        )
+    return checkpoint.model_copy(update={"pending": pending})
 
 
 async def _restored(bringing: Awaitable[Restored], interruption: Interruption | None, fork: str) -> Restored:

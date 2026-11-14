@@ -232,7 +232,7 @@ class CaseStore:
     def forward_failed(self, signal: Signal, endpoint: str, reason: str) -> ForwardFailure:
         raise self._refused("written")
 
-    def fork(self, run_id: str, *, at_seq: int, clock: Clock) -> Store:
+    def fork(self, run_id: str, *, at_seq: int, clock: Clock, afresh: bool = False) -> Store:
         raise self._refused("forked")
 
     def discard(self) -> None:

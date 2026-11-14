@@ -14,7 +14,15 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from minutehand.domain.memory import Collection, Key, SeededMemory
-from minutehand.domain.scenario import DispatchRule, Model, ProviderKey, ReplyBehaviour, Take, TicketState
+from minutehand.domain.scenario import (
+    DispatchRule,
+    Happening,
+    Model,
+    ProviderKey,
+    ReplyBehaviour,
+    Take,
+    TicketState,
+)
 from minutehand.domain.world import EntityRef
 
 
@@ -132,8 +140,43 @@ class MemoryEdit(Model):
         return self
 
 
+class AddHappening(Model):
+    """Ours (CHANGES-OURS.md): from the fork onward a person does one more thing by themselves, `after` the
+    checkpoint: a message posted, a seeded document changed, a ticket moved, any `Happening` a scenario may hold.
+    Nothing before the checkpoint changes: the happening is added at the end of the scenario's list, so every
+    happening the parent scheduled keeps its place, and it is due at the checkpoint's moment plus `after`.
+
+    The happening is written as a scenario writes one, without its own `after`: the moment is this override's,
+    counted from the fork, not from the scenario's start."""
+
+    kind: Literal["add_happening"] = "add_happening"
+    after: timedelta = Field(gt=timedelta(0), description="How long after the fork's checkpoint it happens")
+    happening: Happening
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_moment(cls, written: object) -> object:
+        if not isinstance(written, dict) or not isinstance(written.get("happening"), dict):
+            return written
+        happening: dict[str, object] = dict(written["happening"])
+        if "after" in happening or "gap" in happening:
+            raise ValueError(
+                "an added happening is due `after` the fork's checkpoint, which the override says: its own `after` "
+                "or `gap` counts from the scenario's start and is not written here"
+            )
+        return {**written, "happening": {**happening, "after": written.get("after")}}
+
+
 Override = Annotated[
-    PromptPatch | ModelSwap | PersonChange | ReplyAt | TicketEdit | DeadlineShift | DispatchChange | MemoryEdit,
+    PromptPatch
+    | ModelSwap
+    | PersonChange
+    | ReplyAt
+    | TicketEdit
+    | DeadlineShift
+    | DispatchChange
+    | MemoryEdit
+    | AddHappening,
     Field(discriminator="kind"),
 ]
 
@@ -147,6 +190,12 @@ class Fork(Model):
         default=None,
         description="Where the fork's draws come from for asks after the checkpoint; None: its parent's. Draws made "
         "before the checkpoint are kept as the parent made them",
+    )
+    live: bool = Field(
+        default=False,
+        description="Ours (CHANGES-OURS.md): from the checkpoint on every model call is made again, the agent's and "
+        "the people's, and none is answered from the parent's record or from another fork's. False: as upstream, "
+        "the parent's recorded answers are used until the agent asks something the parent did not",
     )
 
 

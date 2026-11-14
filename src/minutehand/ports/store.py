@@ -161,11 +161,12 @@ class Store(Protocol):
         """This run's failures to pass the agent's telemetry on, in order."""
         ...
 
-    def fork(self, run_id: str, *, at_seq: int, clock: Clock) -> Store:
+    def fork(self, run_id: str, *, at_seq: int, clock: Clock, afresh: bool = False) -> Store:
         """A child run that sees this log up to `at_seq` and nothing after.
 
         The child stamps from `clock`, its own: a fork starts at an earlier moment than its
-        parent has reached, and a clock does not run backwards.
+        parent has reached, and a clock does not run backwards. `afresh`: the child's `written` answers None, so
+        every model call made for it is made again and none is answered from what this file already holds.
         """
         ...
 
