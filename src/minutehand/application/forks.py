@@ -46,6 +46,7 @@ from minutehand.domain.scenario import (
     Helpfulness,
     Model,
     Person,
+    PersonEmails,
     PersonPosts,
     ReplyBehaviour,
     Scenario,
@@ -353,6 +354,8 @@ def _added(override: AddHappening, people: Mapping[str, Person]) -> str:
     happening = override.happening
     person = people.get(happening.person)
     name = person.name if person is not None else happening.person
+    if isinstance(happening, PersonEmails):
+        return f"an email from {name}, {_quoted(happening.subject or happening.text, 40)}"
     if isinstance(happening, PersonPosts):
         return f"a post by {name} on {happening.provider}, {_quoted(happening.text, 40)}"
     return f"{name} {happening.kind}"

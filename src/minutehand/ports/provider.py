@@ -29,6 +29,7 @@ from minutehand.domain.scenario import (
     MessagingHappening,
     Model,
     Person,
+    PersonEmails,
     Scenario,
 )
 from minutehand.domain.world import Change, WorldEvent
@@ -210,6 +211,17 @@ class ChangesDocuments(Protocol):
         """Do what the happening says to the seeded document it names (`Scenario.happening_document`), as its
         person would, recorded as actor PERSON. A document no longer there (the agent deleted it) is left alone
         and nothing is written."""
+        ...
+
+
+@runtime_checkable
+class SendsEmail(Protocol):
+    """Ours (CHANGES-OURS.md): a provider holding mailboxes, where a person's email of their own lands: how a
+    `PersonEmails` happening lands."""
+
+    def send_email(self, happening: PersonEmails, scenario: Scenario, world: Store, clock: Clock) -> None:
+        """Deliver the email to each recipient's mailbox, unread in the inbox, recorded as actor PERSON at the
+        clock's moment. A recipient with no mailbox here is refused by name."""
         ...
 
 

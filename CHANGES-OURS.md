@@ -72,3 +72,32 @@ written to; no added happening plays as before; several fire each at its moment;
 the checkpoint itself (2 fail), added first instead of last (3 fail). Found in a real run and fixed: a fork's
 `fork.json` keeps the happening with the override's `after` filled in, and reading it back for the report refused
 it (`test_a_fork_with_an_added_happening_reads_back_as_it_was_kept`); the run itself was kept, only its report failed.
+
+## 4. A person sends an email by themselves (`sends_email`)
+
+**What.** Upstream's Gmail holds only the emails a scenario seeds before the start and the replies people write to
+the agent; no happening family sends one. `PersonEmails` (`kind: sends_email`) is a new member of `Happening`: a
+person's email at a moment, built as a mail client builds one (`From` the person's name and their own address or
+`from_address`, so an outside person may write from a look-alike domain), delivered unread to the inbox of each
+recipient (the scenario's owner when `to` is empty) through a new port, `ports.provider.SendsEmail`, which Google
+Workspace implements (`send_email`, through `MailWorld.deliver`, actor PERSON). It **wakes nobody**: Gmail tells the
+agent of no new mail (`users.watch` is not served), so it is among the happenings `Orchestrator._unheard` lists, and
+the agent finds it on its next poll. A run whose email lands on a provider without the port, or to nobody with a
+mailbox, is refused by name. In a fork it is added with `add_happening` (change 3).
+
+```yaml
+happenings:
+  - {kind: sends_email, provider: google_workspace, person: kevin, after: P1DT2H,
+     from_address: kevin@partner-mai1.example, subject: Q3 numbers, text: "..."}
+```
+
+**Files.** `domain/scenario.py` (`PersonEmails`), `ports/provider.py` (`SendsEmail`),
+`adapters/providers/google_workspace/provider.py` (`send_email`), `application/orchestrator.py` (`_happen`, `_mailer`,
+`_unheard`, `_refuse_unlanded_happenings`), `application/standing.py`, `application/forks.py` (report wording),
+`schemas/scenario.schema.json`, `schemas/seed.schema.json` (regenerated).
+
+**Tests.** `tests/providers/google_workspace/test_person_sends_email.py`: lands unread in the owner's inbox at its
+moment as the person's, from the given address, and wakes nobody; a scenario without it writes nothing; one to nobody
+with a mailbox is refused; a fork adds one after its checkpoint and the parent never had it. Mutations tried: landing
+read instead of unread (1 fails), the orchestrator ignoring it (3 fail), and an email waking the agent (1 failed
+before `_unheard` listed it: that is how the wake was found).

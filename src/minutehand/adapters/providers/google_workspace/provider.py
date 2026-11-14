@@ -13,12 +13,14 @@ Drive's push notifications do. Both kinds of channel are `channels.py`'s.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from email.message import EmailMessage
+from email.utils import format_datetime, formataddr
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from minutehand.adapters.providers.google_workspace import calendar_wire, wire
+from minutehand.adapters.providers.google_workspace import calendar_wire, gmail_wire, wire
 from minutehand.adapters.providers.google_workspace.app import DriveApi, build_app
 from minutehand.adapters.providers.google_workspace.calendars import (
     CalendarApi,
@@ -35,7 +37,7 @@ from minutehand.domain.errors import Rendered
 from minutehand.domain.items import ItemKind, TypedItem, read_as
 from minutehand.domain.people import PersonReply
 from minutehand.domain.provider import Manifest, fault_fragment
-from minutehand.domain.scenario import DocumentHappening, Person, Scenario
+from minutehand.domain.scenario import DocumentHappening, Person, PersonEmails, Scenario
 from minutehand.domain.transitions import (
     REPLY,
     TEXT,
@@ -79,6 +81,43 @@ class GoogleWorkspaceProvider:
         """Whether a guest's answer lands on a calendar a live `events.watch` channel watches. A reply email is never
         heard: Gmail's `users.watch` answers 501, and the agent polls its mailbox."""
         return self.heard_of(reply.in_reply_to, None, world, clock)
+
+    def send_email(self, happening: PersonEmails, scenario: Scenario, world: Store, clock: Clock) -> None:
+        """Ours (`ports.provider.SendsEmail`): the person's email, built as a mail client builds one, delivered
+        to each recipient's mailbox unread, as theirs."""
+        people = {p.key: p for p in scenario.people}
+        sender = people[happening.person]
+        address = happening.from_address or sender.held_email(MANIFEST.key, "a Google account is its email address")
+        recipients: list[tuple[str, str]] = []
+        for named in happening.to or ([scenario.owner] if scenario.owner is not None else []):
+            if named in people:
+                recipients.append((people[named].name, people[named].held_email(MANIFEST.key, "an email address")))
+            else:
+                recipients.append(("", named))
+        mailboxes = MailWorld(world)
+        if not any(mailboxes.owner(a) is not None for _, a in recipients):
+            raise ValueError(
+                f"{happening.person}'s email ({happening.subject!r}) is to nobody with a mailbox here: "
+                + ", ".join(a for _, a in recipients)
+            )
+        now = clock.now()
+        message = EmailMessage()
+        message["From"] = formataddr((happening.from_name or sender.name, address))
+        message["To"] = ", ".join(formataddr(r) for r in recipients)
+        if happening.subject:
+            message["Subject"] = happening.subject
+        message["Date"] = format_datetime(now.astimezone(UTC))
+        message["Message-ID"] = f"<happening.{int(now.timestamp() * 1000)}.{happening.person}@mail.gmail.com>"
+        message.set_content(happening.text)
+        holder = next((box for box in (mailboxes.owner(a) for _, a in recipients) if box is not None), None)
+        mailboxes.deliver(
+            message.as_bytes(),
+            sender=address,
+            actor=Actor.PERSON,
+            taken_in=now,
+            snapshot_in=holder,
+            recipient_labels=[gmail_wire.INBOX, gmail_wire.UNREAD],
+        )
 
     async def land(self, reply: PersonReply, world: Store, clock: Clock) -> None:
         """A reply to an email lands as the person's email in the asking mailbox; an answer to an invitation as the

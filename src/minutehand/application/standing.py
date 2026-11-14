@@ -64,6 +64,7 @@ from minutehand.domain.scenario import (
     DocumentHappening,
     Happening,
     Person,
+    PersonEmails,
     PersonUses,
     ProviderKey,
     ProviderSeed,
@@ -104,6 +105,7 @@ from minutehand.ports.provider import (
     OwnsSeed,
     Provider,
     PushesEvents,
+    SendsEmail,
 )
 from minutehand.ports.store import Store
 from minutehand.ports.transitions import HoldsSeeded, ProvidesTransitions, TalksToAgent
@@ -632,6 +634,8 @@ class StandingWorld:
             port, ok = "seeded tickets a person can act on", isinstance(acting(found), HoldsSeeded)
         elif isinstance(happening, DocumentHappening):
             port, ok = "ChangesDocuments", isinstance(found, ChangesDocuments)
+        elif isinstance(happening, PersonEmails):
+            port, ok = "SendsEmail", isinstance(found, SendsEmail)
         else:
             port, ok = "PushesEvents", isinstance(found, PushesEvents) and provider in self._inbound
         if not ok:
@@ -657,6 +661,9 @@ class StandingWorld:
             found.change(happening, self.scenario, self.store, self.clock)
             if isinstance(found, NotifiesChanges) and found.watched(self.store, self.clock):
                 await found.notify(self.store, self.clock)
+        elif isinstance(happening, PersonEmails):
+            assert isinstance(found, SendsEmail)
+            found.send_email(happening, self.scenario, self.store, self.clock)
         else:
             await self._pushes(provider).happen(
                 happening, self._target(provider), self.store, self.clock, secret=self._signing[provider]
@@ -993,4 +1000,6 @@ def _doing(happening: Happening) -> str:
         return f"{happening.action.kind} the seeded document {happening.document!r}"
     if isinstance(happening, PersonUses):
         return f"uses {happening.use!r} in {happening.inbox}"
+    if isinstance(happening, PersonEmails):
+        return f"sends the email {happening.subject!r}"
     return happening.kind

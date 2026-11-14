@@ -2224,6 +2224,87 @@
       "title": "PersonEdits",
       "type": "object"
     },
+    "PersonEmails": {
+      "additionalProperties": false,
+      "description": "Ours (CHANGES-OURS.md): a person sends an email by themselves, at a moment, with no agent involved: a new\nmessage in each recipient's mailbox, unread, as a mail from outside the agent's own sends lands in Gmail.\n\nIt lands through the provider that holds mailboxes (`ports.provider.SendsEmail`) and wakes nobody: Gmail pushes\nnothing (`users.watch` is not served), so the agent finds it on its next poll of its mailbox. `from_address` is\nthe address it is sent from, the person's own when None: a scenario's outside person may write from a domain\nof their own.",
+      "properties": {
+        "after": {
+          "description": "Offset from the scenario's start",
+          "format": "duration",
+          "title": "After",
+          "type": "string"
+        },
+        "from_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The From address; None: the person's own email",
+          "title": "From Address"
+        },
+        "from_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The From display name; None: the person's name",
+          "title": "From Name"
+        },
+        "kind": {
+          "const": "sends_email",
+          "default": "sends_email",
+          "title": "Kind",
+          "type": "string"
+        },
+        "person": {
+          "description": "Person.key of whoever sends it",
+          "title": "Person",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider holding the mailboxes, e.g. google_workspace",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "subject": {
+          "default": "",
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "to": {
+          "default": [],
+          "description": "Person.key or address of each recipient; empty: the scenario's owner",
+          "items": {
+            "type": "string"
+          },
+          "title": "To",
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider",
+        "person",
+        "after",
+        "text"
+      ],
+      "title": "PersonEmails",
+      "type": "object"
+    },
     "PersonJoins": {
       "additionalProperties": false,
       "properties": {
@@ -4905,6 +4986,7 @@
             "opens_agent": "#/$defs/PersonOpensAgent",
             "posts": "#/$defs/PersonPosts",
             "reacts": "#/$defs/PersonReacts",
+            "sends_email": "#/$defs/PersonEmails",
             "ticket": "#/$defs/TicketHappening",
             "uses": "#/$defs/PersonUses"
           },
@@ -4943,6 +5025,9 @@
           },
           {
             "$ref": "#/$defs/PersonUses"
+          },
+          {
+            "$ref": "#/$defs/PersonEmails"
           }
         ]
       },

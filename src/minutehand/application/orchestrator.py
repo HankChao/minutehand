@@ -58,6 +58,7 @@ from minutehand.domain.run import RunRecord, StopReason, wake_limit
 from minutehand.domain.scenario import (
     DocumentHappening,
     Happening,
+    PersonEmails,
     PersonUses,
     ProviderKey,
     Scenario,
@@ -86,6 +87,7 @@ from minutehand.ports.provider import (
     NotifiesChanges,
     Provider,
     PushesEvents,
+    SendsEmail,
 )
 from minutehand.ports.store import Store
 from minutehand.ports.telemetry import Telemetry
@@ -782,6 +784,9 @@ class Orchestrator:
             provider = self._scenario.happening_document(happening).provider
             self._changes(provider).change(happening, self._scenario, self._store, self._clock)
             return
+        if isinstance(happening, PersonEmails):  # ours: an email lands in a mailbox and wakes nobody
+            self._mailer(happening.provider).send_email(happening, self._scenario, self._store, self._clock)
+            return
         await self._pushes(happening.provider).happen(
             happening,
             self._inbound(happening.provider),
@@ -871,8 +876,9 @@ class Orchestrator:
             return not self._desk.heard(pending, self._store)
         if isinstance(pending, PendingCall):
             return pending.ends  # answered empty at the end of its wait; sooner, it is answered with what came
+        # ours: an email a person sends by themselves is unheard too, as Gmail tells the agent of no new mail
         return isinstance(pending, PendingHappening) and isinstance(
-            self._scenario.happenings[pending.happening], TicketHappening | DocumentHappening
+            self._scenario.happenings[pending.happening], TicketHappening | DocumentHappening | PersonEmails
         )
 
     def _reason(self, fired: list[Pending]) -> WakeReason:
@@ -1091,6 +1097,12 @@ class Orchestrator:
             raise RunRefused(f"no signing secret was resolved for the agent's inbound target on {provider}")
         return self._signing[provider]
 
+    def _mailer(self, provider: ProviderKey) -> SendsEmail:
+        found = next((p for p in self._services.providers if p.manifest.key == provider), None)
+        if not isinstance(found, SendsEmail):
+            raise RunRefused(f"a happening sends an email on {provider}, which holds no mailboxes")
+        return found
+
     def _changes(self, provider: ProviderKey) -> ChangesDocuments:
         found = next((p for p in self._services.providers if p.manifest.key == provider), None)
         if not isinstance(found, ChangesDocuments):
@@ -1185,6 +1197,11 @@ def _refuse_unlanded_happenings(scenario: Scenario, agent: AgentUnderTest, servi
                 continue
             why = f"is no inbox agent {agent.name} declares"
             what = f"{happening.person} uses {happening.use!r}"
+        elif isinstance(happening, PersonEmails):
+            if isinstance(found, SendsEmail):
+                continue
+            why = "is not in this run" if found is None else "holds no mailboxes"
+            what = f"{happening.person} sends the email {happening.subject!r}"
         else:
             if provider not in services.pushes:
                 why = "pushes no events to the agent"

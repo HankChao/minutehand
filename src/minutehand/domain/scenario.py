@@ -732,8 +732,30 @@ class PersonUses(Model):
         return self
 
 
+class PersonEmails(Model):
+    """Ours (CHANGES-OURS.md): a person sends an email by themselves, at a moment, with no agent involved: a new
+    message in each recipient's mailbox, unread, as a mail from outside the agent's own sends lands in Gmail.
+
+    It lands through the provider that holds mailboxes (`ports.provider.SendsEmail`) and wakes nobody: Gmail pushes
+    nothing (`users.watch` is not served), so the agent finds it on its next poll of its mailbox. `from_address` is
+    the address it is sent from, the person's own when None: a scenario's outside person may write from a domain
+    of their own."""
+
+    kind: Literal["sends_email"] = "sends_email"
+    provider: ProviderKey = Field(description="The provider holding the mailboxes, e.g. google_workspace")
+    person: str = Field(description="Person.key of whoever sends it")
+    after: timedelta = Field(gt=timedelta(0), description="Offset from the scenario's start")
+    to: list[str] = Field(
+        default=[], description="Person.key or address of each recipient; empty: the scenario's owner"
+    )
+    from_address: str | None = Field(default=None, description="The From address; None: the person's own email")
+    from_name: str | None = Field(default=None, description="The From display name; None: the person's name")
+    subject: str = ""
+    text: str
+
+
 Happening = Annotated[
-    TicketHappening | DocumentHappening | MessagingHappening | PersonUses, Field(discriminator="kind")
+    TicketHappening | DocumentHappening | MessagingHappening | PersonUses | PersonEmails, Field(discriminator="kind")
 ]
 """Something a person does by themselves, unprompted, at a moment the scenario sets. Four families, one per kind of
 thing acted on, each landing through the port its provider implements: a `TicketHappening` as a transition
