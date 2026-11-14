@@ -314,6 +314,9 @@ class ProxyAddon:
         self.record_model_calls = record_model_calls
         # The run whose recording answers the agent's model calls (`replay.ModelReplay`): `minutehand replay` only.
         self.model_replay: ModelReplay | None = None
+        # The parent's model calls up to a fork's checkpoint, answering the agent while it is played back to it
+        # (`play_back` to `live`); frozen, so a call the record does not hold is refused and nothing reaches a model.
+        self.playback_model_replay: ModelReplay | None = None
         # The record answering every other call of the agent's while a fork's agent is played back to its checkpoint
         # (`application.playback`): set by `play_back`, cleared by `live`. Nothing is recorded meanwhile.
         self.trace_replay: TraceReplay | None = None
@@ -869,6 +872,7 @@ class ProxyAddon:
 
     def live(self) -> None:
         self.trace_replay = None
+        self.playback_model_replay = None  # the checkpoint is reached: its answers are not asked for again
 
     def _played_back(self, flow: http.HTTPFlow, host: str) -> None:
         """A call answered from the record a fork's agent is being played back from: what it was answered then, status,
@@ -894,12 +898,14 @@ class ProxyAddon:
         """A model call answered from the replayed run's recording, and kept as a span saying so; False when there
         is no replay, or the runs have parted, and the call goes to the model. A frozen replay that has parted
         answers the refusal instead (`replay.Parted`), kept the same way: nothing reaches a model."""
-        if self.model_replay is None:
+        playing_back = self.trace_replay is not None and self.playback_model_replay is not None
+        replay = self.playback_model_replay if playing_back else self.model_replay
+        if replay is None:
             return False
         request = flow.request
         world = self.worlds.keeping(host, None)
         body, kind = request.get_content(strict=False) or b"", _first_header(request, "content-type") or ""
-        recorded = self.model_replay.answer(host, request.path, body, kind, world.clock.now())
+        recorded = replay.answer(host, request.path, body, kind, world.clock.now())
         if recorded is None:
             return False
         if isinstance(recorded, Parted):
@@ -920,7 +926,7 @@ class ProxyAddon:
             traceparent=_first_header(request, TRACEPARENT),
             started=now,
             ended=now,
-            replayed_from=self.model_replay.source,
+            replayed_from=replay.source,
         )
         span = span_of(exchanged)
         kept_in = self.worlds.keeping(host, span.trace_id if span.parent_span_id is not None else None)

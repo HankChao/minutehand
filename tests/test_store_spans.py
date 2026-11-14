@@ -109,6 +109,22 @@ def test_spans_are_read_by_source_and_after_a_wake_by_the_store(world: tuple[Sql
     assert [s.span.span_id for s in store.spans(source=SpanSource.WIRE, after_wake=0)] == ["4" * 16]
 
 
+def test_spans_are_read_up_to_a_wake_by_the_store(world: tuple[SqliteStore, RunClock]) -> None:
+    """Ours: a fork's playback answers the agent's model calls up to its checkpoint from the record, so it reads
+    the calls placed in the wakes up to that one, and no later."""
+    store, clock = world
+    store.receive([span(TRACE_A, "1" * 16)], source=SpanSource.WIRE)
+    clock.begin_wake()
+    store.receive([span(TRACE_A, "2" * 16)], source=SpanSource.RECEIVED)
+    store.receive([span(TRACE_B, "3" * 16)], source=SpanSource.WIRE)
+    clock.begin_wake()
+    store.receive([span(TRACE_B, "4" * 16)], source=SpanSource.WIRE)
+
+    assert [s.span.span_id for s in store.spans(source=SpanSource.WIRE, until_wake=1)] == ["1" * 16, "3" * 16]
+    assert [s.span.span_id for s in store.spans(source=SpanSource.WIRE, until_wake=0)] == ["1" * 16]
+    assert [s.span.span_id for s in store.spans(after_wake=0, until_wake=1)] == ["2" * 16, "3" * 16]
+
+
 def _wake(store: SqliteStore, clock: RunClock) -> int:
     wake = clock.begin_wake()
     store.wake_began(wake)

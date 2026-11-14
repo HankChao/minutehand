@@ -145,9 +145,10 @@ class Store(Protocol):
         wake: int | None = None,
         source: SpanSource | None = None,
         after_wake: int | None = None,
+        until_wake: int | None = None,
     ) -> list[StoredSpan]:
-        """The spans this run can see, in the order they arrived, of one trace, placed in one wake, of one source
-        and placed after one wake when any is given. A fork sees its parent's spans placed in the wakes up to the
+        """The spans this run can see, in the order they arrived, of one trace, placed in one wake, of one source,
+        placed after one wake and placed no later than one wake when any is given. A fork sees its parent's spans placed in the wakes up to the
         one it was forked after. Narrowed here rather than by the caller: a long run holds hundreds of thousands
         of spans, and a fork that read them all to keep its model calls held gigabytes."""
         ...

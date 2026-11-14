@@ -881,6 +881,7 @@ class SqliteStore:
         wake: int | None = None,
         source: SpanSource | None = None,
         after_wake: int | None = None,
+        until_wake: int | None = None,
     ) -> list[StoredSpan]:
         where, args = self._spans_visible()
         query = (
@@ -899,6 +900,9 @@ class SqliteStore:
         if after_wake is not None:
             query += " AND wake>?"
             args.append(after_wake)
+        if until_wake is not None:
+            query += " AND wake<=?"
+            args.append(until_wake)
         depth = {run: d for d, (run, _, _, _) in enumerate(self._lineage)}
         # Oldest ancestor first, and in each run the order they arrived.
         rows = sorted(self._db.execute(query, args).fetchall(), key=lambda r: (-depth[r[0]], r[6]))

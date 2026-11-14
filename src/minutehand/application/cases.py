@@ -134,10 +134,13 @@ class CaseStore:
         wake: int | None = None,
         source: SpanSource | None = None,
         after_wake: int | None = None,
+        until_wake: int | None = None,
     ) -> list[StoredSpan]:
         found: list[StoredSpan] = []
         for part in self._parts:
-            for stored in part.store.spans(trace_id=trace_id, wake=wake, source=source, after_wake=after_wake):
+            for stored in part.store.spans(
+                trace_id=trace_id, wake=wake, source=source, after_wake=after_wake, until_wake=until_wake
+            ):
                 found.append(stored.model_copy(update={"after_seq": part.at(stored.after_seq)}))
         return sorted(found, key=lambda s: s.span.start)
 

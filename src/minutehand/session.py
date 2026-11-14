@@ -632,7 +632,14 @@ async def fork(
             model_replay = ModelReplay.of(
                 parent_run, parent_kept.spans(source=SpanSource.WIRE, after_wake=forked_after), frozen=frozen
             )
+            # The model calls the agent made up to the checkpoint, answered as they were while it is played back to
+            # it: a model asked again words its answer differently, and the agent's next call then differs from the
+            # record's (CHANGES-OURS.md, "Playback answers the agent's model calls from the record").
+            played_models = ModelReplay.of(
+                parent_run, parent_kept.spans(source=SpanSource.WIRE, until_wake=forked_after), frozen=True
+            )
         proxy.proxy.addon.model_replay = model_replay
+        proxy.proxy.addon.playback_model_replay = played_models
         own_files = OwnDatabases(agent, run_dir(state, child_id))
         scorer.own_files = own_files
         env = (
