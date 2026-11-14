@@ -8,6 +8,7 @@ Every surface that shows a fork (`minutehand findings` and `runs`, the viewer, t
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -20,6 +21,7 @@ from minutehand.application.restore import Restored, Verification
 from minutehand.checks.runner import RunResult
 from minutehand.domain.checks import Effectiveness, Finding
 from minutehand.domain.experiment import (
+    AddHappening,
     CallMatch,
     DeadlineShift,
     DispatchChange,
@@ -44,6 +46,7 @@ from minutehand.domain.scenario import (
     Helpfulness,
     Model,
     Person,
+    PersonPosts,
     ReplyBehaviour,
     Scenario,
     Scripted,
@@ -294,6 +297,8 @@ def change_words(
         before = "; ".join(rule_words(r) for r in scenario.dispatch) or "every wake delivered as asked"
         after = "; ".join(rule_words(r) for r in override.rules) or "every wake delivered as asked"
         return f"delivers the agent's own wakes by other rules from the fork on: {after}; before, {before}"
+    if isinstance(override, AddHappening):  # ours
+        return f"adds {_added(override, people)}, {span(override.after)} after the fork"
     assert isinstance(override, DeadlineShift)
     which = "later" if override.by >= timedelta(0) else "earlier"
     deadline = scenario.deadline
@@ -336,15 +341,28 @@ def short_words(override: Override, scenario: Scenario) -> str:
         return f"memory: {len(override.put)} set, {len(override.delete)} removed"
     if isinstance(override, DispatchChange):
         return "dispatch: " + ("; ".join(rule_words(r) for r in override.rules) or "as asked")
+    if isinstance(override, AddHappening):  # ours
+        return f"+{span(override.after)} {_added(override, people)}"
     assert isinstance(override, DeadlineShift)
     sign = "+" if override.by >= timedelta(0) else "-"
     return f"deadline {sign}{span(override.by)}"
 
 
+def _added(override: AddHappening, people: Mapping[str, Person]) -> str:
+    """What an added happening has its person do, in a few words (ours)."""
+    happening = override.happening
+    person = people.get(happening.person)
+    name = person.name if person is not None else happening.person
+    if isinstance(happening, PersonPosts):
+        return f"a post by {name} on {happening.provider}, {_quoted(happening.text, 40)}"
+    return f"{name} {happening.kind}"
+
+
 def summary(fork: Fork, scenario: Scenario) -> str:
+    live = "live (every model call made again); " if fork.live else ""
     if not fork.overrides:
-        return "Rerun, nothing changed"
-    return "; ".join(short_words(o, scenario) for o in fork.overrides)
+        return "Rerun, live, nothing changed" if fork.live else "Rerun, nothing changed"
+    return live + "; ".join(short_words(o, scenario) for o in fork.overrides)
 
 
 # -- whether its restore was proven ---------------------------------------------------------------------------

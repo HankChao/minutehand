@@ -268,3 +268,15 @@ def test_a_fork_with_an_added_happening_reads_back_as_it_was_kept() -> None:
     to its end and its report failed to read its own `fork.json`."""
     fork = Fork.model_validate({"parent_run": "parent", "at_seq": 1, "overrides": [ADDED]})
     assert Fork.model_validate_json(fork.model_dump_json()) == fork
+
+
+def test_a_fork_with_an_added_happening_and_live_is_said_in_its_report() -> None:
+    """Found in a real run: the fork played to its end and its report's summary of the changes refused the added
+    happening (`forks.short_words` knew none). Both wordings now say it, and a live fork says it is live."""
+    from minutehand.application.forks import change_words, span, summary
+
+    fork = Fork.model_validate({"parent_run": "parent", "at_seq": 1, "overrides": [ADDED], "live": True})
+    said = summary(fork, SCENARIO)
+    half = span(timedelta(minutes=30))
+    assert said.startswith("live") and f"+{half}" in said and "Dov Aranha" in said
+    assert f"{half} after the fork" in change_words(fork.overrides[0], SCENARIO)
