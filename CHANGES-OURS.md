@@ -69,4 +69,6 @@ overrides:
 **Tests.** `tests/orchestrator/test_fork_adds_a_happening.py`: fires its `after` past the checkpoint; the parent's own
 happening keeps its moment; the log up to the checkpoint is the parent's event for event and the parent is not
 written to; no added happening plays as before; several fire each at its moment; refusals. Mutations tried: due at
-the checkpoint itself (2 fail), added first instead of last (3 fail).
+the checkpoint itself (2 fail), added first instead of last (3 fail). Found in a real run and fixed: a fork's
+`fork.json` keeps the happening with the override's `after` filled in, and reading it back for the report refused
+it (`test_a_fork_with_an_added_happening_reads_back_as_it_was_kept`); the run itself was kept, only its report failed.

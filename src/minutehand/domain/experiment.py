@@ -159,7 +159,11 @@ class AddHappening(Model):
         if not isinstance(written, dict) or not isinstance(written.get("happening"), dict):
             return written
         happening: dict[str, object] = dict(written["happening"])
-        if "after" in happening or "gap" in happening:
+        # A fork kept as validated (`fork.json`) holds the override's `after` on the happening too: read back as written
+        kept = "after" in happening and happening["after"] == written.get("after") and happening.get("gap") is None
+        if kept:
+            return written
+        if "after" in happening or happening.get("gap") is not None:
             raise ValueError(
                 "an added happening is due `after` the fork's checkpoint, which the override says: its own `after` "
                 "or `gap` counts from the scenario's start and is not written here"

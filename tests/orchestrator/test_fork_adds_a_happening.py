@@ -260,3 +260,11 @@ def test_a_fork_made_afresh_is_answered_nothing_from_the_file_and_one_not_is(tmp
     live = parent.fork("live", at_seq=parent.head(), clock=RunClock(SCENARIO.starts_at), afresh=True)
     assert as_upstream.written("the same ask") == '"then"'
     assert live.written("the same ask") is None
+
+
+def test_a_fork_with_an_added_happening_reads_back_as_it_was_kept() -> None:
+    """`fork.json` keeps the fork as validated, the happening's `after` filled in from the override's: reading it
+    back (the fork's report, `minutehand findings`) must accept what it wrote. Found in a real run: the fork played
+    to its end and its report failed to read its own `fork.json`."""
+    fork = Fork.model_validate({"parent_run": "parent", "at_seq": 1, "overrides": [ADDED]})
+    assert Fork.model_validate_json(fork.model_dump_json()) == fork
