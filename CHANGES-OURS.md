@@ -101,3 +101,32 @@ moment as the person's, from the given address, and wakes nobody; a scenario wit
 with a mailbox is refused; a fork adds one after its checkpoint and the parent never had it. Mutations tried: landing
 read instead of unread (1 fails), the orchestrator ignoring it (3 fail), and an email waking the agent (1 failed
 before `_unheard` listed it: that is how the wake was found).
+
+## 5. A played-back agent reads back what it just wrote
+
+**What.** While a fork's agent is played back to its checkpoint, the receiver answers its memory as the parent's log
+stood at a cursor, `TraceReplay.reached_seq`: the last seq of the calls answered from the record. A write of the
+agent's memory is no such call, so it moves no cursor, and a read right after it in the same wake was answered as
+the log stood before it. An agent that notes something and reads its notes back in one wake (ours: `remember`, then
+the next model call's prompt lists the notes) then sends its model another prompt than the record's; the frozen
+playback refuses that call, the agent sends one mail fewer, and the fork is refused ("sent nothing where the record
+holds a call"). Every fork of our 30-day run was refused this way; a week-long one never was, its agent never wrote
+and read back in one wake. Upstream's `_Playback` answered a write as it would have landed and kept it nowhere; ours
+keeps it in the memory it answers from (`_memory`, `_versions`) until the cursor moves and the log is read again,
+which by then holds the parent's own write. Nothing reaches the log either way.
+
+**Files.** `adapters/telemetry/receiver.py` (`_Playback.answer`).
+
+**Tests.** `tests/test_playback_reads_its_own_writes.py`: a write then a list in the same position reads it back; a
+delete is gone on the next get; once the cursor passes, the log answers and nothing was written. Mutation tried:
+upstream's behaviour, the write kept nowhere (2 fail).
+
+## 6. Minutehand's own model calls may wait longer (`MINUTEHAND_MODEL_TIMEOUT`)
+
+**What.** Minutehand's own model (the people, the judged checks, the reviewer) is called through a client with a
+fixed 120 s timeout. Judging a month-long run on a self-hosted model took longer, and both judged checks of our
+30-day run were blocked ("the model failed: … Request timed out"). `MINUTEHAND_MODEL_TIMEOUT` (seconds) sets it;
+unset, 120 s as upstream; not a positive number, refused by name.
+
+**Files.** `adapters/model/pydantic_ai.py` (`timeout_seconds`). **Tests.** the same file's
+`test_the_model_timeout_is_read_from_the_environment_and_a_bad_one_is_refused`.

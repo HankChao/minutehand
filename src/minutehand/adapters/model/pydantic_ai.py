@@ -55,6 +55,9 @@ own, so the banner is turned off before any run."""
 
 MODEL_VARIABLE = "MINUTEHAND_MODEL"
 TIMEOUT_SECONDS = 120.0
+TIMEOUT_VARIABLE = "MINUTEHAND_MODEL_TIMEOUT"
+"""Ours (CHANGES-OURS.md 6): seconds one call to Minutehand's own model may take, `TIMEOUT_SECONDS` without it. A
+self-hosted model judging a month-long run takes longer than two minutes to answer."""
 RETRIES = 1
 """How many times an answer that does not validate is sent back before the call fails."""
 _ERROR_CHARS = 300
@@ -199,9 +202,24 @@ def from_environment() -> PydanticAIModel | None:
     return PydanticAIModel(resolve, provider=provider, model_id=model_id)
 
 
+def timeout_seconds() -> float:
+    """`MINUTEHAND_MODEL_TIMEOUT` as seconds when set, else `TIMEOUT_SECONDS`; refused, naming it, when not a positive
+    number."""
+    given = os.environ[TIMEOUT_VARIABLE].strip() if TIMEOUT_VARIABLE in os.environ else ""
+    if not given:
+        return TIMEOUT_SECONDS
+    try:
+        seconds = float(given)
+    except ValueError:
+        seconds = 0.0
+    if seconds <= 0:
+        raise RunRefused(f"{TIMEOUT_VARIABLE} is {given!r}: it is a number of seconds above 0")
+    return seconds
+
+
 def _own_http_client() -> httpx2.AsyncClient:
     """The HTTP client a call is made through: it reads no proxy variable of the environment."""
-    return httpx2.AsyncClient(trust_env=False, timeout=TIMEOUT_SECONDS)
+    return httpx2.AsyncClient(trust_env=False, timeout=timeout_seconds())
 
 
 def resolve(name: str, http_client: httpx2.AsyncClient) -> ProviderModel:

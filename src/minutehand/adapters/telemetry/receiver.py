@@ -61,7 +61,17 @@ from minutehand.adapters.proxy import mcp
 from minutehand.adapters.telemetry import otlp
 from minutehand.adapters.telemetry.forward import ENDPOINT, Forwarding, forward, signal_variable
 from minutehand.application import memory
-from minutehand.domain.memory import Found, Item, Listed, MemoryGet, MemoryList, StoreCall, Written
+from minutehand.domain.memory import (
+    Found,
+    Item,
+    Listed,
+    MemoryGet,
+    MemoryList,
+    MemoryPut,
+    StoreCall,
+    Written,
+    canonical,
+)
 from minutehand.domain.scenario import Model
 from minutehand.domain.telemetry import ReceivedSpan, Signal, SpanSource
 from minutehand.domain.world import Actor, Change, EntityKind, EntityRef, Operation
@@ -509,8 +519,15 @@ class _Playback:
                 (k, v) for (c, k), v in self._memory.items() if c == call.collection and k.startswith(call.prefix)
             )
             return Listed(items=[Item(key=key, value=memory.value_of(body)) for key, body in found])
-        applied = memory.landed_in(dict(self._versions), call)
+        applied = memory.landed_in(self._versions, call)
         for one, lands in zip(call.writes, applied, strict=True):
             if lands:
                 self.written[(one.collection, one.key)] += 1
+                # Ours (CHANGES-OURS.md 5): what the agent just wrote is what it reads back, until the cursor passes the
+                # write in the parent's log, which holds it: a read after a write in the same wake, before any call
+                # of the agent's moved the cursor, was answered without it, and the agent's next call differed.
+                if isinstance(one, MemoryPut):
+                    self._memory[(one.collection, one.key)] = canonical(one.value)
+                else:
+                    self._memory.pop((one.collection, one.key), None)
         return Written(seq=seq, applied=applied)
