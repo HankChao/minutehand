@@ -441,3 +441,32 @@ def test_a_bad_model_max_tokens_is_refused(environment: Callable[[dict[str, str]
         environment({MAX_TOKENS_VARIABLE: bad})
         with pytest.raises(RunRefused, match=MAX_TOKENS_VARIABLE):
             max_tokens()
+
+
+@pytest.mark.parametrize(
+    ("given", "sent"), [(None, None), ('{"chat_template_kwargs": {"thinking": false}}', {"thinking": False})]
+)
+async def test_the_model_extra_body_goes_with_each_call_and_unset_sends_nothing(
+    environment: Callable[[dict[str, str]], None], given: str | None, sent: object
+) -> None:
+    """Ours (CHANGES-OURS.md 8): a vLLM-served reasoning model's reasoning is turned off by the server's own option,
+    sent beside the request; unset, nothing more is sent, as upstream."""
+    from minutehand.adapters.model.pydantic_ai import EXTRA_BODY_VARIABLE
+
+    async with stubbed(chat_completion) as (stub, base):
+        variables = {MODEL_VARIABLE: "openai-chat:people", "OPENAI_API_KEY": SENTINEL, "OPENAI_BASE_URL": f"{base}/v1"}
+        environment({**variables, **({EXTRA_BODY_VARIABLE: given} if given is not None else {})})
+        model = from_environment()
+        assert model is not None
+        await model.answer("You forecast.", ASKED, Forecast)
+    [body] = stub.bodies
+    assert (body["chat_template_kwargs"] if "chat_template_kwargs" in body else None) == sent
+
+
+def test_a_model_extra_body_that_is_no_json_object_is_refused(environment: Callable[[dict[str, str]], None]) -> None:
+    from minutehand.adapters.model.pydantic_ai import EXTRA_BODY_VARIABLE, extra_body
+
+    for bad in ("thinking=false", "[1]", '"x"'):
+        environment({EXTRA_BODY_VARIABLE: bad})
+        with pytest.raises(RunRefused, match=EXTRA_BODY_VARIABLE):
+            extra_body()

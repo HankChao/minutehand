@@ -28,6 +28,7 @@ variables itself.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import re
 from collections.abc import Callable, Sequence
@@ -56,6 +57,10 @@ own, so the banner is turned off before any run."""
 MODEL_VARIABLE = "MINUTEHAND_MODEL"
 TIMEOUT_SECONDS = 120.0
 TIMEOUT_VARIABLE = "MINUTEHAND_MODEL_TIMEOUT"
+EXTRA_BODY_VARIABLE = "MINUTEHAND_MODEL_EXTRA_BODY"
+"""Ours (CHANGES-OURS.md 8): a JSON object sent with every call of Minutehand's own model beside what pydantic-ai
+sends, for a self-hosted server's own options: `{"chat_template_kwargs": {"thinking": false}}` turns a vLLM-served
+reasoning model's reasoning off, which on a month-long run's review did not stop."""
 MAX_TOKENS_VARIABLE = "MINUTEHAND_MODEL_MAX_TOKENS"
 """Ours (CHANGES-OURS.md 7): the most tokens one answer of Minutehand's own model may take, reasoning included; unset,
 the provider's own limit. A reasoning model asked to review a month-long run went on for over 50,000 tokens."""
@@ -111,6 +116,9 @@ class PydanticAIModel:
         cap = max_tokens()
         if cap is not None:
             settings["max_tokens"] = cap
+        extra = extra_body()
+        if extra is not None:
+            settings["extra_body"] = extra
         try:
             async with _own_http_client() as client:
                 agent: Agent[None, AnswerT] = Agent(
@@ -233,6 +241,20 @@ def max_tokens() -> int | None:
     if not given.isdigit() or int(given) <= 0:
         raise RunRefused(f"{MAX_TOKENS_VARIABLE} is {given!r}: it is a whole number of tokens above 0")
     return int(given)
+
+
+def extra_body() -> dict[str, object] | None:
+    """`MINUTEHAND_MODEL_EXTRA_BODY` as a JSON object when set, else None; refused, naming it, when not one."""
+    given = os.environ[EXTRA_BODY_VARIABLE].strip() if EXTRA_BODY_VARIABLE in os.environ else ""
+    if not given:
+        return None
+    try:
+        parsed: object = json.loads(given)
+    except json.JSONDecodeError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise RunRefused(f"{EXTRA_BODY_VARIABLE} is {given!r}: it is a JSON object, sent with every model call")
+    return {str(k): v for k, v in parsed.items()}
 
 
 def _own_http_client() -> httpx2.AsyncClient:

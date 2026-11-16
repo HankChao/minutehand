@@ -144,3 +144,15 @@ upstream; not a whole number above 0, refused by name.
 **Files.** `adapters/model/pydantic_ai.py` (`max_tokens`, `PydanticAIModel.answer`). **Tests.**
 `tests/model/test_pydantic_ai.py::test_the_model_max_tokens_caps_each_answer_and_unset_sends_none`, `test_a_bad_model_max_tokens_is_refused`.
 Mutation tried: the cap not sent (1 fails).
+
+## 8. A server's own options with every call of Minutehand's model (`MINUTEHAND_MODEL_EXTRA_BODY`)
+
+**What.** Capped (change 7), the one review item a reasoning model could not finish failed in minutes instead of
+hours, but still failed: the model spent the whole cap reasoning. The lab's vLLM server turns a model's reasoning off
+per request with `{"chat_template_kwargs": {"thinking": false}}` (measured: the same question answered in 2 tokens
+instead of 51, the reasoning empty). `MINUTEHAND_MODEL_EXTRA_BODY`, a JSON object, is sent with every call of
+Minutehand's own model as pydantic-ai's `extra_body`; unset, nothing more is sent, as upstream; not a JSON object,
+refused by name. The agent's own model calls are the agent's and are not touched.
+
+**Files.** `adapters/model/pydantic_ai.py` (`extra_body`). **Tests.** `tests/model/test_pydantic_ai.py::test_the_model_extra_body_goes_with_each_call_and_unset_sends_nothing`,
+`test_a_model_extra_body_that_is_no_json_object_is_refused`. Mutation tried: the body not sent (1 fails).
