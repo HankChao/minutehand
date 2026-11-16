@@ -128,5 +128,19 @@ fixed 120 s timeout. Judging a month-long run on a self-hosted model took longer
 30-day run were blocked ("the model failed: … Request timed out"). `MINUTEHAND_MODEL_TIMEOUT` (seconds) sets it;
 unset, 120 s as upstream; not a positive number, refused by name.
 
-**Files.** `adapters/model/pydantic_ai.py` (`timeout_seconds`). **Tests.** the same file's
-`test_the_model_timeout_is_read_from_the_environment_and_a_bad_one_is_refused`.
+**Files.** `adapters/model/pydantic_ai.py` (`timeout_seconds`). **Tests.** `tests/test_playback_reads_its_own_writes.py`
+(the variable read and refused), `tests/model/test_pydantic_ai.py::test_the_model_timeout_reaches_every_request_the_providers_own_client_makes`
+(end to end: a provider answering after 2 s fails at 0.5 s and answers at 8 s; mutation tried: the variable ignored, 1 fails).
+A longer timeout alone did not unblock the reviewer: its calls were not slow, they never stopped (change 7).
+
+## 7. Minutehand's own model answers may be capped (`MINUTEHAND_MODEL_MAX_TOKENS`)
+
+**What.** Sampling the self-hosted model's own counters while the shared reviewer judged our 30-day run showed one
+request generating for over 20 minutes and 50,000 tokens without ending: a reasoning model that on some prompts does
+not stop. With no cap the call lasts as long as any timeout allows. `MINUTEHAND_MODEL_MAX_TOKENS` sends a
+`max_tokens` with every call of Minutehand's own model (people, judged checks, reviewer); unset, none is sent, as
+upstream; not a whole number above 0, refused by name.
+
+**Files.** `adapters/model/pydantic_ai.py` (`max_tokens`, `PydanticAIModel.answer`). **Tests.**
+`tests/model/test_pydantic_ai.py::test_the_model_max_tokens_caps_each_answer_and_unset_sends_none`, `test_a_bad_model_max_tokens_is_refused`.
+Mutation tried: the cap not sent (1 fails).

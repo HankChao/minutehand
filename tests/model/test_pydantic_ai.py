@@ -413,3 +413,31 @@ async def test_the_model_timeout_reaches_every_request_the_providers_own_client_
         else:
             with pytest.raises(ModelFailed, match="could not be reached"):
                 await model.answer("You forecast.", ASKED, Forecast)
+
+
+@pytest.mark.parametrize(("given", "sent"), [(None, None), ("16000", 16000)])
+async def test_the_model_max_tokens_caps_each_answer_and_unset_sends_none(
+    environment: Callable[[dict[str, str]], None], given: str | None, sent: int | None
+) -> None:
+    """Ours (CHANGES-OURS.md 7): a reasoning model reviewing a month-long run went on for over 50,000 tokens; the cap
+    goes with every request as the provider's own `max_tokens`, and unset, none is sent, as upstream."""
+    from minutehand.adapters.model.pydantic_ai import MAX_TOKENS_VARIABLE
+
+    async with stubbed(chat_completion) as (stub, base):
+        variables = {MODEL_VARIABLE: "openai-chat:people", "OPENAI_API_KEY": SENTINEL, "OPENAI_BASE_URL": f"{base}/v1"}
+        environment({**variables, **({MAX_TOKENS_VARIABLE: given} if given is not None else {})})
+        model = from_environment()
+        assert model is not None
+        await model.answer("You forecast.", ASKED, Forecast)
+    [body] = stub.bodies
+    capped = body["max_completion_tokens"] if "max_completion_tokens" in body else body.get("max_tokens")
+    assert capped == sent
+
+
+def test_a_bad_model_max_tokens_is_refused(environment: Callable[[dict[str, str]], None]) -> None:
+    from minutehand.adapters.model.pydantic_ai import MAX_TOKENS_VARIABLE, max_tokens
+
+    for bad in ("0", "-1", "lots", "1.5"):
+        environment({MAX_TOKENS_VARIABLE: bad})
+        with pytest.raises(RunRefused, match=MAX_TOKENS_VARIABLE):
+            max_tokens()

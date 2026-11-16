@@ -56,6 +56,9 @@ own, so the banner is turned off before any run."""
 MODEL_VARIABLE = "MINUTEHAND_MODEL"
 TIMEOUT_SECONDS = 120.0
 TIMEOUT_VARIABLE = "MINUTEHAND_MODEL_TIMEOUT"
+MAX_TOKENS_VARIABLE = "MINUTEHAND_MODEL_MAX_TOKENS"
+"""Ours (CHANGES-OURS.md 7): the most tokens one answer of Minutehand's own model may take, reasoning included; unset,
+the provider's own limit. A reasoning model asked to review a month-long run went on for over 50,000 tokens."""
 """Ours (CHANGES-OURS.md 6): seconds one call to Minutehand's own model may take, `TIMEOUT_SECONDS` without it. A
 self-hosted model judging a month-long run takes longer than two minutes to answer."""
 RETRIES = 1
@@ -102,7 +105,12 @@ class PydanticAIModel:
         if named in self._default_temperature:
             temperature = None
         history, prompt = _wire(messages)
-        settings: ModelSettings | None = {"temperature": temperature} if temperature is not None else None
+        settings: ModelSettings = {}
+        if temperature is not None:
+            settings["temperature"] = temperature
+        cap = max_tokens()
+        if cap is not None:
+            settings["max_tokens"] = cap
         try:
             async with _own_http_client() as client:
                 agent: Agent[None, AnswerT] = Agent(
@@ -111,7 +119,7 @@ class PydanticAIModel:
                     instructions=system,
                     retries=RETRIES,
                 )
-                result = await agent.run(prompt, message_history=history, model_settings=settings)
+                result = await agent.run(prompt, message_history=history, model_settings=settings or None)
         except ModelHTTPError as e:
             if temperature is not None and _refuses_temperature(e):
                 self._default_temperature.add(named)
@@ -215,6 +223,16 @@ def timeout_seconds() -> float:
     if seconds <= 0:
         raise RunRefused(f"{TIMEOUT_VARIABLE} is {given!r}: it is a number of seconds above 0")
     return seconds
+
+
+def max_tokens() -> int | None:
+    """`MINUTEHAND_MODEL_MAX_TOKENS` as a whole number when set, else None; refused, naming it, when not one above 0."""
+    given = os.environ[MAX_TOKENS_VARIABLE].strip() if MAX_TOKENS_VARIABLE in os.environ else ""
+    if not given:
+        return None
+    if not given.isdigit() or int(given) <= 0:
+        raise RunRefused(f"{MAX_TOKENS_VARIABLE} is {given!r}: it is a whole number of tokens above 0")
+    return int(given)
 
 
 def _own_http_client() -> httpx2.AsyncClient:
