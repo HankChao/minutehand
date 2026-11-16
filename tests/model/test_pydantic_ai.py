@@ -7,6 +7,7 @@ provider's client sends it, and nothing of Minutehand's named it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Callable
@@ -373,3 +374,42 @@ def test_the_missing_package_refusal_names_the_extra_to_install() -> None:
         '`pip install "pydantic-ai-slim[openai]"`'
     )
     assert found is not None and found.group(1) == "openai"
+
+
+class _Slow(Stub):
+    """A provider that answers after `seconds`: longer than a timeout makes Minutehand's call fail."""
+
+    seconds: float = 0.0
+
+    async def _answer(self, request: Request) -> Response:
+        await asyncio.sleep(self.seconds)
+        return await super()._answer(request)
+
+
+@pytest.mark.parametrize(("timeout", "answers"), [("0.5", False), ("8", True)])
+async def test_the_model_timeout_reaches_every_request_the_providers_own_client_makes(
+    environment: Callable[[dict[str, str]], None], timeout: str, answers: bool
+) -> None:
+    """Ours (CHANGES-OURS.md 6): `MINUTEHAND_MODEL_TIMEOUT` is the timeout of a call to Minutehand's own model,
+    end to end through the provider's client. The provider answers after 2 s; 0.5 s fails the call, 8 s gets the
+    answer."""
+    from minutehand.adapters.model.pydantic_ai import TIMEOUT_VARIABLE
+
+    stub = _Slow(chat_completion)
+    stub.seconds = 2.0
+    async with serving(stub.app()) as base:
+        environment(
+            {
+                MODEL_VARIABLE: "openai-chat:people",
+                "OPENAI_API_KEY": SENTINEL,
+                "OPENAI_BASE_URL": f"{base}/v1",
+                TIMEOUT_VARIABLE: timeout,
+            }
+        )
+        model = from_environment()
+        assert model is not None
+        if answers:
+            assert (await model.answer("You forecast.", ASKED, Forecast)).answer == Forecast(sunny=True, note=None)
+        else:
+            with pytest.raises(ModelFailed, match="could not be reached"):
+                await model.answer("You forecast.", ASKED, Forecast)
